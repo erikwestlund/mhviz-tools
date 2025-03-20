@@ -1,0 +1,89 @@
+---
+title: "Be Honest"
+author: "Erik Westlund"
+date: "2025-03-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(forcats)
+library(ggplot2)
+library(kableExtra)
+library(readxl)
+
+source("theme.R")
+
+data <- readxl::read_excel("data/hcup/Wisconsin/HCUPnet_Community_DX1CCSR_County_WI_hyp_2020.xlsx", sheet = 4) |> 
+  rename(
+    county = "County",
+    length_of_stay = "Average Length of Stay (in days)"
+  ) |> 
+  select(county, length_of_stay) |> 
+  filter(length_of_stay != "*") |> 
+  mutate(length_of_stay = as.numeric(length_of_stay)) |> 
+  arrange(desc(length_of_stay))
+
+data |> kable()
+```
+
+## Full Scale
+
+Below, we visualize length of stay by county in its full scale
+
+```{r full_scale}
+
+comparison_data <- data |> 
+  filter(
+    county %in% c("Kewaunee", "Juneau", "Waupaca")
+  )
+
+p <- ggplot(comparison_data, aes(x = fct_reorder(county, length_of_stay), y = length_of_stay)) +
+  geom_col() +
+  theme_minimal() +
+  labs(
+    title = "Length of Hospital Stay by County",
+    subtitle = "OB Patients with Births Complicated By Hypertension, Wisconsin, 2020",
+    x = element_blank(),
+    y = "Length of Stay (days)"
+  ) + 
+  theme_jhu_bar() 
+p
+```
+
+## Constrained Scale
+
+```{r constrained_scale}
+
+c <- p +
+  coord_flip() +
+  coord_cartesian(ylim = c(2.29, 2.51)) 
+
+c
+```
+
+## All
+
+```{r all, fig.width=8, fig.height=12}
+
+a <- ggplot(data, aes(x = fct_reorder(county, length_of_stay), y = length_of_stay)) +
+  geom_col(width = 0.75) +
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "Length of Hospital Stay by County",
+    subtitle = "OB Patients with Births Complicated By Hypertension, Wisconsin, 2020",
+    x = element_blank(),
+    y = "Length of Stay (days)"
+  ) + 
+  theme_jhu_bar() +
+  theme(
+    axis.text.y = element_text(
+      family = "Tahoma", size = 9, color = colors$Gray5
+    )
+  )
+
+a
+```

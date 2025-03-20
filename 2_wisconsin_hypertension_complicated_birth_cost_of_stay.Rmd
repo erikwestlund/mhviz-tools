@@ -1,0 +1,195 @@
+---
+title: "Cost of Stay Analysis (OB Patients with Births Complicated By Hypertension, Wisconsin, 2020)"
+author: "Erik Westlund"
+date: "2025-03-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(forcats)
+library(ggplot2)
+library(ggtext)
+library(kableExtra)
+library(readxl)
+
+source("theme.R")
+
+raw_data <- readxl::read_excel("data/hcup/Wisconsin/HCUPnet_Community_DX1CCSR_County_WI_hyp_2020.xlsx", sheet = 4)
+
+glimpse(raw_data)
+
+```
+
+# RMarkdown
+
+RMarkdown is a powerful tool for creating dynamic documents that combine code, text, and visualizations. In this example, we'll use RMarkdown to create a bar chart of the average hospital costs per stay for a single county in Wisconsin.
+
+You can show the actual code that gets run alongside the output, which is a very powerful way to communicate your analysis and allow others to inspect the logic of your approach.
+
+Similar technologies include:
+
+- Jupyter Notebooks
+- Quarto
+
+## Goal
+
+Our goal is to create a bar chart of the average hospital costs per stay for a single county in Wisconsin.
+
+## Prepare Data
+
+We'll start by filtering the data to only include the counties with data, while selecting the columns we need.
+
+```{r filter_data}
+data <- raw_data |> 
+  rename(
+    county = `County`,
+    average_hospital_costs_per_stay = `Average Hospital Costs per Stay (in $)`
+  ) |> 
+  select(county, average_hospital_costs_per_stay) |>
+  filter(average_hospital_costs_per_stay != "*") |>
+  mutate(average_hospital_costs_per_stay = as.numeric(average_hospital_costs_per_stay)) 
+
+data |> head()
+```
+
+## Visualize
+
+We'll create a bar chart of the average hospital costs per stay for each county.
+
+```{r single_county}
+
+p <- ggplot(data, aes(x = county, y = average_hospital_costs_per_stay)) +
+  geom_col()
+
+p
+```
+
+## Immediate Problems
+
+* We are going to want the axes flipped because you cannot read the county names
+* We may want to sort by cost and  by county
+* We may want to add a title and axis labels
+* The gray background is distracting and the lot seems to lack color
+
+## Flip the Axis And Make The Plot Larger
+
+```{r flip_axis, fig.width=8, fig.height=12}
+p <- p + coord_flip()
+p
+```
+
+## Improve Title and Axis Labels
+
+```{r improve_labels, fig.width=8, fig.height=12}
+p <- p + 
+  labs(
+    title = "Average Hospital Costs per Stay by County",
+    subtitle = "OB Patients with Births Complicated By Hypertension, Wisconsin, 2020",
+    x = element_blank(),
+    y = "Average Hospital Costs per Stay ($)"
+  )
+p
+```
+
+## Improve Aesthetics
+
+I have included a file, `theme.R`, which contains a custom theme for our plots. Let's apply this theme to improve the aesthetics of our plot.
+
+This will:
+
+* Remove teh gray background, which can be distracting
+* Apply Johns Hopkins-themed colors
+
+```{r improve_aesthetics, fig.width=8, fig.height=12}
+p <- p + theme_jhu_bar()
+p
+```
+
+## More Improvements
+
+There are other improvement we may wish to make, such as:
+
+* Sorting the bars by cost
+* Adding dollars values to the bars
+* Changing the color of the State and US Totals
+
+
+## Sorting Bars
+
+In R/ggplot2, this is achieved by reordering the factor levels of the x-axis variable.
+
+```{r sort_bars, fig.width=8, fig.height=12}
+p <- p + 
+  aes(x = fct_reorder(county, average_hospital_costs_per_stay)) +
+  labs(
+    x = element_blank(),
+  )
+
+p
+```
+
+## Further Enhancements
+
+So far, this looks similar to what we see with Stata. However, we can do more with R/ggplot2.
+
+Let's:
+
+* Color the bars for US Total/State Total
+* Color the labels
+* Add annotations just for US/State totals
+
+```{r add_dollar_values, fig.width=8, fig.height=12}
+data <- data |>
+  mutate(county_factor = fct_reorder(county, average_hospital_costs_per_stay))
+
+most_expensive <- data |> filter(average_hospital_costs_per_stay == max(average_hospital_costs_per_stay)) |> pull(county)
+least_expensive <- data |> filter(average_hospital_costs_per_stay == min(average_hospital_costs_per_stay)) |> pull(county)
+
+label_counties <- c("US Total", "State Total", most_expensive, least_expensive)
+
+text_offset <- max(data$average_hospital_costs_per_stay) * 0.025
+
+p <- ggplot(data, aes(x = county_factor, 
+                      y = average_hospital_costs_per_stay, 
+                      fill = case_when(
+                        county == "US Total" ~ "US Total",
+                        county == "State Total" ~ "State Total",
+                        TRUE ~ "Other"
+                      ))) +
+  geom_col() + 
+  geom_text(data = data |> filter(county %in% label_counties), 
+            aes(label = scales::dollar(average_hospital_costs_per_stay), 
+                y = average_hospital_costs_per_stay + text_offset),
+            hjust = 0,
+            size = 4, 
+            fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(
+    values = c("US Total" = "#E69F00", "State Total" = "#E69F00", "Other" = colors$HopkinsBlue),
+    guide = "none"
+  ) +
+  expand_limits(y = max(data$average_hospital_costs_per_stay) * 1.1) +
+  labs(
+    title = "Average Hospital Costs per Stay by County",
+    subtitle = "OB Patients with Births Complicated By Hypertension, Wisconsin, 2020",
+    x = NULL,
+    y = "Average Hospital Costs per Stay ($)"
+  ) +
+  theme_jhu_bar() +
+  theme(
+    axis.text.y = element_text(
+      size = 10,
+      face = ifelse(levels(data$county_factor) %in% c("US Total", "State Total"), "bold", "plain")
+    )
+  )
+
+p
+
+ggsave("output/2_hcup_wisconsin_hypertension_average_hospital_costs_per_stay.png", p, width = 8, height = 12)
+
+```
+
+

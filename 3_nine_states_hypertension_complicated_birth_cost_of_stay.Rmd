@@ -1,0 +1,158 @@
+---
+title: "Cost of Stay Analysis (OB Patients with Births Complicated By Hypertension, 9 States)"
+author: "Erik Westlund"
+date: "2025-03-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(forcats)
+library(ggplot2)
+library(ggridges)
+library(ggtext)
+library(kableExtra)
+library(purrr)
+library(readxl)
+library(stringr)
+
+source("theme.R")
+
+```
+
+## Goal
+
+Our goal here will be to visualize differences in the cost of stay for OB patients with births complicated by hypertension across these states:
+
+* California
+* Georgia
+* Louisiana
+* Michigan
+* Mississippi
+* Oklahoma
+* South Dakota
+* Utah
+* Wisconsin
+
+## Read In Data
+
+We will start by reading in the data from our HCUP data files.
+
+We will do this by  making a list of the file paths and then using `lapply` to read in the data from each file.
+
+```{r read_data}
+
+data_files <- list(
+  ca = "data/hcup/California/HCUPnet_Community_DX1CCSR_County_CA_hyp complicating birth_2020.xlsx",
+  ga = "data/hcup/Georgia/HCUPnet_Community_DX1CCSR_County_GA_hyp complicating birth_2020.xlsx",
+  la = "data/hcup/Louisiana/HCUPnet_Community_DX1CCSR_County_LA_hyp complicating birth_2020.xlsx",
+  mi = "data/hcup/Michigan/HCUPnet_Community_DX1CCSR_County_MI_hyp complicating birth_2020.xlsx",
+  ms = "data/hcup/Mississippi/HCUPnet_Community_DX1CCSR_County_MS_hyp complicating birth_2020.xlsx",
+  ok = "data/hcup/Oklahoma/HCUPnet_Community_DX1CCSR_County_OK_hyp_2020.xlsx",
+  sd = "data/hcup/South Dakota/HCUPnet_Community_DX1CCSR_County_SD_hyp_2020.xlsx",
+  wi = "data/hcup/Wisconsin/HCUPnet_Community_DX1CCSR_County_WI_hyp_2020.xlsx"
+)
+
+dfs <- lapply(data_files, readxl::read_excel, sheet = 4)
+
+```
+
+## Prepare Data
+
+We are going to want to combine all of the data into a single data frame.
+
+We will do this by using a combination of `imap` from the `purrr` R package and `bind_rows` with a custom function that renames the columns and filters out rows with missing data.
+
+Note how we are able to use the functional programming capabilities of R to chain together a series of operations in a clear and concise manner. To achieve this in Stata is, to use a technical term, a nightmare.
+
+```{r combine_data}
+
+data <- imap(dfs, ~ .x |> 
+  rename(
+    county = `County`,
+    average_hospital_costs_per_stay = `Average Hospital Costs per Stay (in $)`
+  ) |> 
+  select(county, average_hospital_costs_per_stay) |> 
+  filter(average_hospital_costs_per_stay != "*") |> 
+  mutate(
+    average_hospital_costs_per_stay = as.numeric(average_hospital_costs_per_stay),
+    state = str_to_upper(.y)  # Add state abbreviation using the list key
+  )
+) |> bind_rows()
+
+```
+
+## Summarize our data frame
+
+```{r summarize_data}
+
+summary_data <- data |> 
+  group_by(state) |> 
+  summarize(
+    n = n(),
+    mean_cost = mean(average_hospital_costs_per_stay, na.rm = TRUE),
+    median_cost = median(average_hospital_costs_per_stay, na.rm = TRUE),
+    min_cost = min(average_hospital_costs_per_stay, na.rm = TRUE),
+    max_cost = max(average_hospital_costs_per_stay, na.rm = TRUE)
+  )
+
+summary_data |> kable()
+```
+
+## Bar Chart of Average Cost of Stay
+
+This takes the average cost of stay, by county, and plots it.
+
+```{r bar_chart}
+text_offset <- max(data$average_hospital_costs_per_stay) * 0.05
+
+p <- ggplot(summary_data, aes(x = fct_reorder(state, mean_cost), y = mean_cost)) +
+  geom_bar(stat = "identity", fill = colors$HopkinsBlue) +
+  coord_flip() +
+  geom_text(aes(label = scales::dollar(mean_cost), y = mean_cost + text_offset), vjust = 0) +
+  labs(
+    title = "Average Cost of Stay for OB Patients\nWith Births Complicated By Hypertension",
+    subtitle = "By State, Average of County Averages",
+    x = element_blank(),
+    y = "Average Cost of Stay (USD)"
+  ) +
+  theme_jhu_bar() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+            
+p
+```
+
+## What's Wrong With This?
+
+We are not actually plotting the average cost of stay.
+
+Rather, we are plotting the average cost of stay for each county, and then taking the averages.
+
+What might be more insightful is to compare the distributions of average costs, by county, across states.
+
+To do this, we can use a ridge plot with the help of the `ggridges` package.
+
+```{r ridge_plot, fig.height=8, fig.width=8}
+
+rp <- ggplot(data, aes(x = average_hospital_costs_per_stay, y = state)) +
+  stat_density_ridges(
+    fill = colors$HopkinsBlue,
+    quantile_lines = TRUE, 
+    quantiles = c(0.5), 
+    alpha = 0.7
+  ) +
+  labs(
+    title = "Distribution of Average Cost of Stay By County\nFor OB Patients With Births Complicated By Hypertension",
+    subtitle = "Median Shown as Solid Line",
+    x = "Average Cost of Stay By County (USD)",
+    y = element_blank()
+  ) +
+  theme_jhu()
+rp
+
+ggsave("output/3_ridge_plot.png", rp, width = 8, height = 8)
+
+
+```
